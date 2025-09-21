@@ -3,118 +3,229 @@
  * 基于Model Context Protocol的前端代码分析工具
  */
 
-import {
-  CallToolRequestSchema,
-  ListResourcesRequestSchema,
-  ListToolsRequestSchema,
-  ReadResourceRequestSchema,
-  Server,
-  StdioServerTransport,
-} from '@modelcontextprotocol/sdk';
-import { FrontendCodeAnalyzer } from '../analyzer/index';
-import { ResourceHandler } from './ResourceHandler';
-import { ToolHandler } from './ToolHandler';
+import { FlowDiagramGenerator } from '../analyzer/FlowDiagramGenerator';
+import { FrontendCodeAnalyzer } from '../analyzer/FrontendCodeAnalyzer';
 
-/**
- * 前端分析MCP服务器类
- */
 export class FrontendAnalysisMCPServer {
-  private server: Server;
-  private analyzer: FrontendCodeAnalyzer | null = null;
-  private toolHandler: ToolHandler;
-  private resourceHandler: ResourceHandler;
+  private analyzer: FrontendCodeAnalyzer;
+  private flowGenerator: FlowDiagramGenerator;
 
   constructor() {
-    this.server = new Server({
-      name: 'frontend-analysis-mcp',
-      version: '1.0.0',
-      capabilities: {
-        tools: {},
-        resources: {},
-      },
-    });
-
-    this.toolHandler = new ToolHandler();
-    this.resourceHandler = new ResourceHandler();
-    this.setupHandlers();
+    this.analyzer = new FrontendCodeAnalyzer('');
+    this.flowGenerator = new FlowDiagramGenerator();
   }
 
   /**
-   * 设置请求处理器
+   * 处理工具调用
    */
-  private setupHandlers(): void {
-    // 工具列表处理器
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => {
+  async handleToolCall(name: string, arguments_: any): Promise<any> {
+    try {
+      switch (name) {
+        case 'analyze_project':
+          if (!arguments_.projectPath) {
+            throw new Error('projectPath is required');
+          }
+          return await this.analyzeProject(arguments_.projectPath);
+
+        case 'analyze_file':
+          if (!arguments_.filePath) {
+            throw new Error('filePath is required');
+          }
+          return await this.analyzeFile(arguments_.filePath);
+
+        case 'get_project_structure':
+          if (!arguments_.projectPath) {
+            throw new Error('projectPath is required');
+          }
+          return await this.getProjectStructure(arguments_.projectPath);
+
+        case 'get_dependencies':
+          if (!arguments_.projectPath) {
+            throw new Error('projectPath is required');
+          }
+          return await this.getDependencies(arguments_.projectPath);
+
+        case 'get_components':
+          if (!arguments_.projectPath) {
+            throw new Error('projectPath is required');
+          }
+          return await this.getComponents(arguments_.projectPath);
+
+        case 'get_functions':
+          if (!arguments_.projectPath) {
+            throw new Error('projectPath is required');
+          }
+          return await this.getFunctions(arguments_.projectPath);
+
+        case 'get_variables':
+          if (!arguments_.projectPath) {
+            throw new Error('projectPath is required');
+          }
+          return await this.getVariables(arguments_.projectPath);
+
+        case 'generate_flow_diagram':
+          if (!arguments_.projectPath) {
+            throw new Error('projectPath is required');
+          }
+          return await this.generateFlowDiagram(arguments_.projectPath);
+
+        default:
+          throw new Error(`Unknown tool: ${name}`);
+      }
+    } catch (error) {
       return {
-        tools: this.toolHandler.getTools(),
+        isError: true,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        content: null,
       };
-    });
+    }
+  }
 
-    // 资源列表处理器
-    this.server.setRequestHandler(ListResourcesRequestSchema, async () => {
-      return {
-        resources: this.resourceHandler.getResources(),
-      };
-    });
+  /**
+   * 处理资源请求
+   */
+  async handleResourceRequest(uri: string): Promise<any> {
+    try {
+      // 处理file://协议
+      const filePath = uri.startsWith('file://') ? uri.slice(7) : uri;
 
-    // 工具调用处理器
-    this.server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
-      const { name, arguments: args } = request.params;
+      const fs = await import('fs/promises');
+      const path = await import('path');
 
-      try {
-        return await this.toolHandler.handleToolCall(name, args, this.analyzer);
-      } catch (error) {
+      // 检查是否为目录
+      const stats = await fs.stat(filePath);
+      if (stats.isDirectory()) {
+        // 目录请求，返回目录列表
+        const files = await fs.readdir(filePath);
         return {
-          content: [
-            {
-              type: 'text',
-              text: `Error: ${error instanceof Error ? error.message : String(error)}`,
-            },
-          ],
+          contents: files.join('\n'),
+          mimeType: 'text/plain',
+        };
+      } else {
+        // 文件请求，读取文件内容
+        const content = await fs.readFile(filePath, 'utf-8');
+        return {
+          contents: content,
+          mimeType: this.getMimeType(filePath),
         };
       }
-    });
-
-    // 资源读取处理器
-    this.server.setRequestHandler(ReadResourceRequestSchema, async (request: any) => {
-      const { uri } = request.params;
-
-      try {
-        return await this.resourceHandler.handleResourceRead(uri, this.analyzer);
-      } catch (error) {
-        return {
-          contents: [
-            {
-              uri,
-              mimeType: 'text/plain',
-              text: `Error: ${error instanceof Error ? error.message : String(error)}`,
-            },
-          ],
-        };
-      }
-    });
+    } catch (error) {
+      return {
+        isError: true,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        content: null,
+      };
+    }
   }
 
   /**
-   * 运行服务器
+   * 分析项目
    */
-  async run(): Promise<void> {
-    const transport = new StdioServerTransport();
-    await this.server.connect(transport);
-    console.error('前端分析MCP服务器已启动');
+  private async analyzeProject(projectPath: string): Promise<any> {
+    // 创建新的分析器实例，使用正确的项目路径
+    const analyzer = new FrontendCodeAnalyzer(projectPath);
+    const result = await analyzer.analyzeProject();
+    return {
+      content: [result],
+      mimeType: 'application/json',
+    };
   }
 
   /**
-   * 设置分析器
+   * 分析文件
    */
-  setAnalyzer(analyzer: FrontendCodeAnalyzer): void {
-    this.analyzer = analyzer;
+  private async analyzeFile(filePath: string): Promise<any> {
+    const result = await this.analyzer.analyzeFile(filePath);
+    return {
+      content: [result],
+      mimeType: 'application/json',
+    };
   }
 
   /**
-   * 获取分析器
+   * 获取项目结构
    */
-  getAnalyzer(): FrontendCodeAnalyzer | null {
-    return this.analyzer;
+  private async getProjectStructure(projectPath: string): Promise<any> {
+    const result = await this.analyzer.analyzeProject(projectPath);
+    return {
+      content: [result.structure],
+      mimeType: 'application/json',
+    };
+  }
+
+  /**
+   * 获取依赖关系
+   */
+  private async getDependencies(projectPath: string): Promise<any> {
+    const result = await this.analyzer.analyzeProject(projectPath);
+    return {
+      content: [result.dependencies],
+      mimeType: 'application/json',
+    };
+  }
+
+  /**
+   * 获取组件信息
+   */
+  private async getComponents(projectPath: string): Promise<any> {
+    const result = await this.analyzer.analyzeProject(projectPath);
+    return {
+      content: [result.components],
+      mimeType: 'application/json',
+    };
+  }
+
+  /**
+   * 获取函数信息
+   */
+  private async getFunctions(projectPath: string): Promise<any> {
+    const result = await this.analyzer.analyzeProject(projectPath);
+    return {
+      content: [result.functions],
+      mimeType: 'application/json',
+    };
+  }
+
+  /**
+   * 获取变量信息
+   */
+  private async getVariables(projectPath: string): Promise<any> {
+    const result = await this.analyzer.analyzeProject(projectPath);
+    return {
+      content: [result.variables],
+      mimeType: 'application/json',
+    };
+  }
+
+  /**
+   * 生成流程图
+   */
+  private async generateFlowDiagram(projectPath: string): Promise<any> {
+    const result = await this.analyzer.analyzeProject(projectPath);
+    const diagram = this.flowGenerator.generateProjectFlow(result);
+
+    return {
+      content: [diagram],
+      mimeType: 'text/plain',
+    };
+  }
+
+  /**
+   * 获取MIME类型
+   */
+  private getMimeType(uri: string): string {
+    const ext = uri.split('.').pop()?.toLowerCase();
+    const mimeTypes: Record<string, string> = {
+      js: 'application/javascript',
+      jsx: 'application/javascript',
+      ts: 'application/typescript',
+      tsx: 'application/typescript',
+      json: 'application/json',
+      html: 'text/html',
+      css: 'text/css',
+      md: 'text/markdown',
+      txt: 'text/plain',
+    };
+    return mimeTypes[ext || ''] || 'text/plain';
   }
 }

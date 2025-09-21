@@ -509,7 +509,7 @@ export class FlowDiagramGenerator {
   private isReactComponent(path: any): boolean {
     const node = path.node;
     const name = this.getFunctionName(path);
-    return name && name.length > 0 && name[0] === name[0]?.toUpperCase();
+    return !!(name && name.length > 0 && name[0] === name[0]?.toUpperCase());
   }
 
   /**
@@ -517,7 +517,7 @@ export class FlowDiagramGenerator {
    */
   private isReactClassComponent(path: any): boolean {
     const node = path.node;
-    return (
+    return !!(
       t.isClassDeclaration(node) &&
       node.superClass &&
       t.isMemberExpression(node.superClass) &&

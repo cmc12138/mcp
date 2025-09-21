@@ -1,0 +1,124 @@
+---
+globs: src/analyzer/*.ts
+description: AST分析和组件检测的最佳实践模�?---
+
+# 分析器模式规�?
+## AST分析最佳实�?
+### Babel AST遍历模式
+
+- 使用动态导入避免循环依赖：`const { default: traverse } = await import('@babel/traverse')`
+- 实现traverse包装器函数处理异步操�?- 使用访问者模式处理不同类型的AST节点
+
+```typescript
+// 推荐的AST遍历模式
+async function traverseAST(ast: any, visitors: any) {
+  const { default: traverse } = await import('@babel/traverse');
+  return traverse(ast, visitors);
+}
+```
+
+### 组件检测规�?
+- 函数组件：检查函数名是否以大写字母开头或返回JSX
+- 类组件：检查是否继承自React.Component
+- 箭头函数组件：检查是否赋值给大写变量�?
+```typescript
+// 组件检测示�?isReactComponent(path: any): boolean {
+  // 检查函数声�?  if (t.isFunctionDeclaration(path.node)) {
+    return this.isComponentName(path.node.id?.name);
+  }
+
+  // 检查箭头函�?  if (t.isArrowFunctionExpression(path.node)) {
+    return this.isComponentName(path.parent?.id?.name);
+  }
+
+  return false;
+}
+```
+
+## 分析器架构模�?
+### 分析器基类结�?
+所有分析器都应遵循以下模式�?
+1. 构造函数初始化配置
+2. 公共分析方法处理主要逻辑
+3. 私有辅助方法处理具体实现
+4. 错误处理方法处理异常情况
+
+### 数据收集模式
+
+- 使用不可变数据结构存储分析结�?- 实现增量分析支持部分更新
+- 提供数据验证和清理方�?
+```typescript
+// 数据收集模式示例
+async analyzeComponents(ast: any, filePath: string): Promise<ComponentInfo[]> {
+  const components: ComponentInfo[] = [];
+
+  await traverseAST(ast, {
+    FunctionDeclaration: async (path: any) => {
+      if (this.isReactComponent(path)) {
+        const componentInfo = await this.createComponentInfo(path, filePath, 'functional', ast);
+        components.push(componentInfo);
+      }
+    }
+  });
+
+  return components;
+}
+```
+
+## 性能优化模式
+
+### 缓存策略
+
+- 实现AST解析结果缓存
+- 使用WeakMap存储组件分析结果
+- 避免重复分析相同的代码片�?
+### 内存管理
+
+- 及时释放大型AST对象引用
+- 使用流式处理处理大型文件
+- 实现分析结果的分页加�?
+### 并发控制
+
+- 使用Promise.all并行处理独立文件
+- 实现分析任务队列避免资源争用
+- 设置合理的并发限�?
+## 错误处理模式
+
+### 分析错误分类
+
+- 解析错误：AST解析失败
+- 分析错误：组件检测失�?- 验证错误：数据验证失�?- 系统错误：内存不足等
+
+### 错误恢复策略
+
+- 跳过有问题的文件继续分析其他文件
+- 提供部分分析结果而非完全失败
+- 记录错误信息用于后续调试
+
+```typescript
+// 错误处理模式
+try {
+  const result = await this.analyzeComponent(path);
+  return result;
+} catch (error) {
+  if (isRecoverableError(error)) {
+    console.warn(`Skipping component analysis: ${error.message}`);
+    return null;
+  }
+  throw createAnalysisError('Component analysis failed', error);
+}
+```
+
+## 扩展性模�?
+### 插件架构
+
+- 支持自定义分析器插件
+- 提供分析器注册和发现机制
+- 实现分析器链式调�?
+### 配置驱动
+
+- 使用配置文件控制分析行为
+- 支持运行时配置更�?- 提供配置验证和默认�?
+### 结果标准�?
+- 定义统一的分析结果格�?- 实现结果序列化和反序列化
+- 提供结果比较和差异检�?

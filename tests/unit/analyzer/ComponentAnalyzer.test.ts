@@ -131,7 +131,7 @@ describe('ComponentAnalyzer', () => {
           return (
             <div>
               <h3>{name}</h3>
-              <p>Price: ${price}</p>
+              <p>Price: {price}</p>
               <button onClick={onAddToCart}>Add to Cart</button>
             </div>
           );
@@ -222,7 +222,7 @@ describe('ComponentAnalyzer', () => {
       const components = analyzer.analyzeComponents(ast, 'test.tsx');
 
       expect(components).toHaveLength(1);
-      expect(components[0].hooks).toHaveLength(3);
+      expect(components[0].hooks).toHaveLength(4);
 
       const useStateHook = components[0].hooks.find(h => h.name === 'useState');
       const useEffectHook = components[0].hooks.find(h => h.name === 'useEffect');

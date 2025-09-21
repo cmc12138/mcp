@@ -42,3 +42,6 @@ temp/
 # Test outputs
 test-results/
 playwright-report/
+
+# Debug files
+debug/

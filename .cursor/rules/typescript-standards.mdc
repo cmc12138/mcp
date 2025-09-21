@@ -1,0 +1,91 @@
+---
+globs: *.ts,*.tsx
+description: TypeScript编码标准和最佳实�?---
+
+# TypeScript编码标准
+
+## 类型定义规范
+
+### 严格类型检�?
+- 启用所有严格类型检查选项（已在tsconfig.json中配置）
+- 使用 `noImplicitAny: true` 避免隐式any类型
+- 使用 `strictNullChecks: true` 进行严格的null检�?- 使用 `noUncheckedIndexedAccess: true` 避免未检查的索引访问
+
+### 接口和类型定�?
+```typescript
+// 优先使用interface而非type（除非需要联合类型）
+interface ComponentInfo {
+  name: string;
+  type: ComponentType;
+  props: ComponentProps;
+  state?: ComponentState;
+}
+
+// 使用联合类型时使用type
+type ComponentType = 'functional' | 'class' | 'arrow';
+```
+
+### 错误处理类型
+
+- 使用自定义错误类型定义在 [src/types/errors.ts](mdc:src/types/errors.ts)
+- 所有分析器方法都应返回Promise并处理异步错�?- 使用Result模式处理可能失败的操�?
+```typescript
+// 错误处理示例
+try {
+  const result = await analyzer.analyzeComponents(ast, filePath);
+  return result;
+} catch (error) {
+  throw createAnalysisError('Component analysis failed', error);
+}
+```
+
+## 代码组织规范
+
+### 导入顺序
+
+1. Node.js内置模块
+2. 第三方库
+3. 项目内部模块（按路径深度排序�?4. 类型导入（使�?`import type`�?
+```typescript
+import * as t from '@babel/types';
+import { parse } from '@babel/parser';
+
+import type { ComponentInfo, ComponentType } from '../types/index';
+import { ComponentAnalyzer } from './ComponentAnalyzer';
+```
+
+### 函数和类定义
+
+- 使用JSDoc注释描述所有公共方�?- 异步函数必须使用async/await
+- 类方法按功能分组（构造函数、公共方法、私有方法）
+
+### 命名约定
+
+- 类名使用PascalCase：`ComponentAnalyzer`
+- 方法名使用camelCase：`analyzeComponents`
+- 常量使用UPPER_SNAKE_CASE：`MAX_RECURSION_DEPTH`
+- 私有方法使用下划线前缀：`_isReactComponent`
+
+## 性能优化规范
+
+### 异步操作
+
+- 使用 `Promise.all()` 并行处理独立的异步操�?- 避免在循环中使用await，优先使用并行处�?- 使用适当的超时机制防止无限等�?
+### 内存管理
+
+- 及时清理大型AST对象引用
+- 使用WeakMap存储临时数据
+- 避免在分析器中存储大量状�?
+## 错误处理规范
+
+### 错误分类
+
+- 使用 [src/types/errors.ts](mdc:src/types/errors.ts) 中定义的错误类型
+- 区分可恢复错误和致命错误
+- 提供有意义的错误消息和上下文信息
+
+### 错误恢复
+
+- 实现重试机制用于网络相关错误
+- 使用降级策略处理部分失败的情�?- 记录错误但不中断整个分析流程
+

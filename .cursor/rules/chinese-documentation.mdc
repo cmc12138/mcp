@@ -1,0 +1,169 @@
+---
+alwaysApply: true
+description: 中文注释和文档编写规�?---
+
+# 中文文档和注释规�?
+## 注释编写标准
+
+### JSDoc注释规范
+
+- 所有公共方法必须使用JSDoc注释
+- 使用中文描述功能和行�?- 包含参数、返回值和异常说明
+
+```typescript
+/**
+ * 分析文件中的React组件
+ * @param ast - Babel解析后的AST对象
+ * @param filePath - 文件路径
+ * @returns Promise<ComponentInfo[]> 组件信息数组
+ * @throws {AnalysisError} 当分析失败时抛出
+ */
+async analyzeComponents(ast: any, filePath: string): Promise<ComponentInfo[]> {
+  // 实现代码
+}
+```
+
+### 行内注释规范
+
+- 复杂逻辑必须添加中文注释
+- 解释算法和业务逻辑
+- 标注TODO和FIXME
+
+```typescript
+// 检测React函数组件：检查函数名是否以大写字母开�?if (t.isFunctionDeclaration(path.node)) {
+  return this.isComponentName(path.node.id?.name);
+}
+
+// TODO: 支持Vue 3 Composition API组件检�?// FIXME: 处理嵌套组件的情�?```
+
+## 文档编写规范
+
+### README文档
+
+- 使用中文编写项目说明
+- 包含安装、使用和API说明
+- 提供代码示例和最佳实�?
+### API文档
+
+- 为每个公共API提供详细说明
+- 包含使用示例和注意事�?- 说明参数类型和返回值格�?
+### 错误消息
+
+- 所有用户可见的错误消息使用中文
+- 提供清晰的错误原因和解决建议
+- 包含错误代码便于调试
+
+```typescript
+// 错误消息示例
+throw createAnalysisError('组件分析失败：无法解析JSX语法', originalError, {
+  filePath,
+  line: path.node.loc?.start.line,
+});
+```
+
+## 代码可读性规�?
+### 变量命名
+
+- 使用有意义的英文变量�?- 复杂业务逻辑使用中文注释说明
+- 避免使用缩写和简�?
+```typescript
+// 好的命名示例
+const componentInfo: ComponentInfo = await this.createComponentInfo(
+  path,
+  filePath,
+  'functional',
+  ast
+);
+const hasReactImport: boolean = this.checkReactImport(ast);
+
+// 添加中文注释说明复杂逻辑
+// 检查是否为React组件：函数名以大写字母开头且返回JSX
+const isReactComponent = this.isComponentName(functionName) && this.returnsJSX(path);
+```
+
+### 函数组织
+
+- 按功能分组相关函�?- 使用清晰的函数名描述功能
+- 添加函数用途的中文注释
+
+```typescript
+// ==================== 组件检测相关方�?====================
+
+/**
+ * 检测React函数组件
+ */
+private isReactFunctionComponent(path: any): boolean {
+  // 实现代码
+}
+
+/**
+ * 检测React类组�? */
+private isReactClassComponent(path: any): boolean {
+  // 实现代码
+}
+```
+
+## 类型定义文档
+
+### 接口注释
+
+- 为所有接口和类型添加中文说明
+- 解释字段用途和约束条件
+- 提供使用示例
+
+```typescript
+/**
+ * 组件信息接口
+ * 描述React/Vue等前端框架组件的详细信息
+ */
+interface ComponentInfo {
+  /** 组件名称 */
+  name: string;
+
+  /** 组件类型：函数组件、类组件或箭头函数组�?*/
+  type: ComponentType;
+
+  /** 组件属性定�?*/
+  props: ComponentProps;
+
+  /** 组件状态定义（仅类组件�?*/
+  state?: ComponentState;
+
+  /** 组件使用的Hook列表（仅函数组件�?*/
+  hooks?: HookUsage[];
+}
+```
+
+## 测试文档规范
+
+### 测试用例描述
+
+- 使用中文描述测试场景
+- 说明测试的预期行�?- 包含边界条件和异常情�?
+```typescript
+describe('ComponentAnalyzer', () => {
+  describe('analyzeComponents', () => {
+    it('应该正确分析带有TypeScript属性的React函数组件', () => {
+      // 测试实现
+    });
+
+    it('应该处理箭头函数组件赋值给变量的情�?, () => {
+      // 测试实现
+    });
+
+    it('应该跳过非组件函�?, () => {
+      // 测试实现
+    });
+  });
+});
+```
+
+## 版本更新文档
+
+### 变更日志
+
+- 使用中文记录功能变更
+- 说明新增、修改和删除的功�?- 提供迁移指南和注意事�?
+### 发布说明
+
+- 描述新版本的主要特�?- 说明已知问题和限�?- 提供升级建议和兼容性说�?

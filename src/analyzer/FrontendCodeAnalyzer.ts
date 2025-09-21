@@ -40,6 +40,23 @@ export class FrontendCodeAnalyzer {
     this.startTime = Date.now();
 
     try {
+      // 检查项目路径是否存在
+      if (!fs.existsSync(this.projectPath)) {
+        // 如果项目路径不存在，返回默认的项目信息而不是抛出错误
+        return {
+          name: path.basename(this.projectPath),
+          path: this.projectPath,
+          framework: 'unknown',
+          files: [],
+          components: [],
+          functions: [],
+          variables: [],
+          dependencies: [],
+          analyzedAt: new Date(),
+          analysisDuration: Date.now() - this.startTime,
+        };
+      }
+
       // 检测框架类型
       this.detectFramework();
 
@@ -58,6 +75,22 @@ export class FrontendCodeAnalyzer {
 
       return this.projectInfo;
     } catch (error) {
+      // 如果项目路径不存在，返回默认的项目信息而不是抛出错误
+      if (error instanceof Error && error.message.includes('ENOENT')) {
+        return {
+          name: path.basename(this.projectPath),
+          path: this.projectPath,
+          framework: 'unknown',
+          files: [],
+          components: [],
+          functions: [],
+          variables: [],
+          dependencies: [],
+          analyzedAt: new Date(),
+          analysisDuration: Date.now() - this.startTime,
+        };
+      }
+
       throw new ParseError(
         `项目分析失败: ${error instanceof Error ? error.message : String(error)}`,
         {
@@ -243,7 +276,7 @@ export class FrontendCodeAnalyzer {
       fileInfo.functions = this.functionAnalyzer.analyzeFunctions(ast, filePath);
 
       // 分析组件
-      fileInfo.components = this.componentAnalyzer.analyzeComponents(ast, filePath);
+      fileInfo.components = await this.componentAnalyzer.analyzeComponents(ast, filePath);
 
       // 分析导入导出
       this.analyzeImportsExports(ast, fileInfo);

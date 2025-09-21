@@ -1,0 +1,184 @@
+---
+globs: tests/**/*.ts,**/*.test.ts,**/*.spec.ts
+description: 单元测试和集成测试的编写规范
+---
+
+# 测试标准规则
+
+## 测试文件组织
+
+### 测试目录结构
+
+- `tests/unit/` - 单元测试
+- `tests/integration/` - 集成测试
+- `tests/fixtures/` - 测试数据和模拟文�?- `tests/__mocks__/` - Mock实现
+
+### 测试文件命名
+
+- 单元测试：`ComponentAnalyzer.test.ts`
+- 集成测试：`mcp-server.test.ts`
+- 测试工具：`setup.ts`
+
+## 单元测试规范
+
+### 测试结构模式
+
+```typescript
+describe('ComponentAnalyzer', () => {
+  let analyzer: ComponentAnalyzer;
+
+  beforeEach(() => {
+    analyzer = new ComponentAnalyzer();
+  });
+
+  describe('analyzeComponents', () => {
+    it('should analyze functional React components correctly', () => {
+      // 测试实现
+    });
+  });
+});
+```
+
+### 测试用例命名
+
+- 使用描述性的测试名称
+- 遵循 "should [expected behavior] when [condition]" 格式
+- 使用中文描述复杂场景
+
+```typescript
+it('should detect React functional components with TypeScript props', () => {
+  // 测试实现
+});
+
+it('should handle arrow function components assigned to variables', () => {
+  // 测试实现
+});
+```
+
+### 测试数据管理
+
+- 使用fixtures目录存储测试代码示例
+- 创建可重用的测试数据生成�?- 使用describe.each进行参数化测�?
+```typescript
+// 测试数据示例
+const testComponents = [
+  {
+    name: 'functional component',
+    code: `function UserCard({ name }: { name: string }) { return <div>{name}</div>; }`,
+    expected: { type: 'functional', hasProps: true },
+  },
+];
+
+describe.each(testComponents)('Component detection', ({ name, code, expected }) => {
+  it(`should detect ${name}`, () => {
+    // 测试实现
+  });
+});
+```
+
+## 集成测试规范
+
+### MCP服务器测�?
+- 测试完整的MCP协议交互
+- 模拟客户端请求和响应
+- 验证工具和资源的正确�?
+```typescript
+describe('MCP Server Integration', () => {
+  let server: FrontendAnalysisMCPServer;
+
+  beforeEach(async () => {
+    server = new FrontendAnalysisMCPServer();
+    await server.initialize();
+  });
+
+  it('should handle analyze_project tool request', async () => {
+    const result = await server.handleTool('analyze_project', {
+      projectPath: './test-project',
+    });
+
+    expect(result).toHaveProperty('components');
+    expect(result).toHaveProperty('functions');
+  });
+});
+```
+
+### 端到端测�?
+- 测试完整的分析流�?- 验证从文件读取到结果输出的全链路
+- 测试错误处理和恢复机�?
+## Mock和Stub规范
+
+### 外部依赖Mock
+
+- Mock Babel解析器避免文件系统依�?- MockMCP SDK避免网络依赖
+- 使用Jest的mock功能
+
+```typescript
+// Mock示例
+jest.mock('@babel/parser', () => ({
+  parse: jest.fn().mockReturnValue(mockAST),
+}));
+
+jest.mock('@modelcontextprotocol/sdk', () => ({
+  Server: jest.fn().mockImplementation(() => ({
+    setRequestHandler: jest.fn(),
+    setResourceHandler: jest.fn(),
+  })),
+}));
+```
+
+### 测试工具函数
+
+- 创建测试专用的AST生成�?- 实现测试数据验证工具
+- 提供性能测试辅助函数
+
+## 测试覆盖率要�?
+### 覆盖率目�?
+- 行覆盖率：≥90%
+- 分支覆盖率：�?5%
+- 函数覆盖率：�?5%
+- 语句覆盖率：�?0%
+
+### 覆盖率报�?
+- 使用Jest内置的覆盖率报告
+- 生成HTML和JSON格式报告
+- 在CI/CD中集成覆盖率检�?
+## 性能测试规范
+
+### 性能基准测试
+
+- 测试大型项目的分析性能
+- 监控内存使用情况
+- 设置性能回归检�?
+```typescript
+describe('Performance Tests', () => {
+  it('should analyze large project within time limit', async () => {
+    const startTime = Date.now();
+    const result = await analyzer.analyzeProject('./large-project');
+    const duration = Date.now() - startTime;
+
+    expect(duration).toBeLessThan(30000); // 30秒限�?    expect(result.components.length).toBeGreaterThan(100);
+  });
+});
+```
+
+### 内存泄漏测试
+
+- 测试长时间运行的内存稳定�?- 验证对象正确释放
+- 监控内存使用趋势
+
+## 测试维护规范
+
+### 测试文档
+
+- 为复杂测试用例添加注�?- 维护测试用例的README文档
+- 记录测试环境配置要求
+
+### 测试重构
+
+- 定期重构重复的测试代�?- 提取公共测试工具函数
+- 保持测试代码的可读�?
+### 持续集成
+
+- 在每次提交时运行测试
+- 设置测试失败时的通知机制
+- 维护稳定的测试环�?

@@ -1,0 +1,214 @@
+---
+globs: src/server/*.ts
+description: MCP服务器实现模式和最佳实�?---
+
+# MCP服务器模式规�?
+## MCP协议实现规范
+
+### 服务器初始化模式
+
+- 实现标准的MCP服务器生命周�?- 注册工具和资源处理器
+- 处理连接和认证逻辑
+
+```typescript
+export class FrontendAnalysisMCPServer {
+  private server: Server;
+  private analyzer: FrontendCodeAnalyzer;
+
+  async initialize() {
+    this.server = new Server({
+      name: 'frontend-analysis-mcp',
+      version: '1.0.0',
+    });
+
+    await this.setupToolHandlers();
+    await this.setupResourceHandlers();
+  }
+}
+```
+
+### 工具处理器模�?
+- 实现统一的工具请求处理接�?- 提供参数验证和错误处�?- 支持异步工具执行
+
+```typescript
+// 工具处理器示�?async handleTool(name: string, arguments: any): Promise<any> {
+  switch (name) {
+    case 'analyze_project':
+      return await this.analyzeProject(arguments.projectPath);
+    case 'analyze_file':
+      return await this.analyzeFile(arguments.filePath);
+    default:
+      throw new Error(`Unknown tool: ${name}`);
+  }
+}
+```
+
+## 工具定义规范
+
+### 工具元数�?
+- 提供完整的工具描述和参数说明
+- 定义输入输出类型和验证规�?- 支持工具版本管理
+
+```typescript
+const tools = [
+  {
+    name: 'analyze_project',
+    description: '分析前端项目的组件、函数和依赖关系',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        projectPath: {
+          type: 'string',
+          description: '项目根目录路�?,
+        },
+        options: {
+          type: 'object',
+          properties: {
+            includePatterns: { type: 'array', items: { type: 'string' } },
+            excludePatterns: { type: 'array', items: { type: 'string' } },
+          },
+        },
+      },
+      required: ['projectPath'],
+    },
+  },
+];
+```
+
+### 工具实现模式
+
+- 使用分析器进行实际工�?- 实现进度报告和取消机�?- 提供详细的结果格�?
+## 资源处理器模�?
+### 资源定义
+
+- 定义可访问的资源类型
+- 实现资源列表和内容获�?- 支持资源订阅和更新通知
+
+```typescript
+const resources = [
+  {
+    uri: 'file://project/components',
+    name: '项目组件列表',
+    description: '项目中所有检测到的组�?,
+    mimeType: 'application/json',
+  },
+];
+```
+
+### 资源访问控制
+
+- 实现基于路径的资源访问控�?- 提供资源缓存和过期机�?- 支持资源内容过滤和转�?
+## 错误处理模式
+
+### MCP错误响应
+
+- 使用标准MCP错误格式
+- 提供有意义的错误消息
+- 区分客户端错误和服务器错�?
+```typescript
+// 错误处理示例
+try {
+  const result = await this.analyzeProject(projectPath);
+  return { success: true, data: result };
+} catch (error) {
+  return {
+    success: false,
+    error: {
+      code: 'ANALYSIS_FAILED',
+      message: error.message,
+      details: error.stack,
+    },
+  };
+}
+```
+
+### 错误分类和恢�?
+- 区分可恢复和不可恢复错误
+- 实现错误重试机制
+- 提供降级服务模式
+
+## 性能优化模式
+
+### 异步处理
+
+- 使用异步队列处理长时间运行的任务
+- 实现任务进度报告
+- 支持任务取消和暂�?
+```typescript
+// 异步任务处理
+async analyzeProjectAsync(projectPath: string): Promise<string> {
+  const taskId = generateTaskId();
+
+  // 启动后台任务
+  this.runAnalysisTask(taskId, projectPath);
+
+  return taskId;
+}
+
+private async runAnalysisTask(taskId: string, projectPath: string) {
+  try {
+    const result = await this.analyzer.analyzeProject(projectPath);
+    this.updateTaskStatus(taskId, 'completed', result);
+  } catch (error) {
+    this.updateTaskStatus(taskId, 'failed', error);
+  }
+}
+```
+
+### 缓存策略
+
+- 实现分析结果缓存
+- 使用增量更新减少重复计算
+- 提供缓存失效和清理机�?
+### 资源管理
+
+- 监控内存使用情况
+- 实现资源池管�?- 提供资源使用统计
+
+## 安全模式
+
+### 输入验证
+
+- 验证所有输入参�?- 防止路径遍历攻击
+- 限制文件访问范围
+
+```typescript
+// 输入验证示例
+private validateProjectPath(projectPath: string): string {
+  const resolvedPath = path.resolve(projectPath);
+  const allowedBase = process.cwd();
+
+  if (!resolvedPath.startsWith(allowedBase)) {
+    throw new Error('Project path outside allowed directory');
+  }
+
+  return resolvedPath;
+}
+```
+
+### 权限控制
+
+- 实现基于角色的访问控�?- 限制敏感操作的执�?- 提供操作审计日志
+
+## 监控和日志模�?
+### 日志记录
+
+- 使用结构化日志格�?- 记录关键操作和错�?- 支持不同日志级别
+
+```typescript
+// 日志记录示例
+this.logger.info('Starting project analysis', {
+  projectPath,
+  taskId,
+  timestamp: new Date().toISOString(),
+});
+```
+
+### 性能监控
+
+- 记录操作执行时间
+- 监控资源使用情况
+- 提供性能指标API
+
+### 健康检�?
+- 实现服务器健康状态检�?- 提供依赖服务状态监�?- 支持优雅关闭和重�?

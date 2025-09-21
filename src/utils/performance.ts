@@ -114,7 +114,7 @@ export class PerformanceOptimizer {
       const stream = fs.createReadStream(filePath, { encoding: 'utf8' });
       let buffer = '';
 
-      stream.on('data', (chunk: string) => {
+      stream.on('data', (chunk: string | Buffer) => {
         buffer += chunk;
 
         // 按行分割处理
@@ -315,7 +315,9 @@ export class PerformanceOptimizer {
     // 如果缓存已满，删除最旧的条目
     if (this.cache.size >= this.maxCacheSize) {
       const oldestKey = this.cache.keys().next().value;
-      this.cache.delete(oldestKey);
+      if (oldestKey !== undefined) {
+        this.cache.delete(oldestKey);
+      }
     }
 
     this.cache.set(key, {

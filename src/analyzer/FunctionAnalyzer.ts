@@ -322,7 +322,7 @@ export class FunctionAnalyzer {
    * 检查是否导出
    */
   private isExported(path: any): boolean {
-    let currentPath = path.parent;
+    let currentPath = path;
 
     while (currentPath) {
       if (
@@ -331,7 +331,7 @@ export class FunctionAnalyzer {
       ) {
         return true;
       }
-      currentPath = currentPath.parent;
+      currentPath = currentPath.parentPath;
     }
 
     return false;
@@ -352,7 +352,10 @@ export class FunctionAnalyzer {
     let complexity = 1;
 
     // 使用简单的递归遍历而不是traverse
-    this.findComplexityNodes(node, () => complexity++);
+    // 从函数体开始遍历
+    if (node.body) {
+      this.findComplexityNodes(node.body, () => complexity++);
+    }
 
     return complexity;
   }
@@ -392,6 +395,15 @@ export class FunctionAnalyzer {
     } else if (t.isSwitchStatement(node)) {
       for (const caseStmt of node.cases) {
         this.findComplexityNodes(caseStmt, callback);
+      }
+    } else if (
+      t.isFunctionDeclaration(node) ||
+      t.isFunctionExpression(node) ||
+      t.isArrowFunctionExpression(node)
+    ) {
+      // 处理函数体
+      if (node.body) {
+        this.findComplexityNodes(node.body, callback);
       }
     }
   }
@@ -446,52 +458,55 @@ export class FunctionAnalyzer {
     let avgCallDepth = 0;
 
     // 使用简单的递归遍历而不是traverse
-    this.analyzePerformanceNodes(node, {
-      onIfStatement: () => {
-        cyclomaticComplexity++;
-        conditionCount++;
-      },
-      onConditionalExpression: () => {
-        cyclomaticComplexity++;
-        conditionCount++;
-      },
-      onSwitchStatement: () => {
-        cyclomaticComplexity++;
-        conditionCount++;
-      },
-      onForStatement: () => {
-        cyclomaticComplexity++;
-        loopCount++;
-      },
-      onForInStatement: () => {
-        cyclomaticComplexity++;
-        loopCount++;
-      },
-      onForOfStatement: () => {
-        cyclomaticComplexity++;
-        loopCount++;
-      },
-      onWhileStatement: () => {
-        cyclomaticComplexity++;
-        loopCount++;
-      },
-      onDoWhileStatement: () => {
-        cyclomaticComplexity++;
-        loopCount++;
-      },
-      onCatchClause: () => {
-        cyclomaticComplexity++;
-      },
-      onVariableDeclarator: () => {
-        localVariableCount++;
-      },
-      onStatement: () => {
-        statementCount++;
-      },
-      onExpression: () => {
-        expressionCount++;
-      },
-    });
+    // 从函数体开始遍历
+    if (node.body) {
+      this.analyzePerformanceNodes(node.body, {
+        onIfStatement: () => {
+          cyclomaticComplexity++;
+          conditionCount++;
+        },
+        onConditionalExpression: () => {
+          cyclomaticComplexity++;
+          conditionCount++;
+        },
+        onSwitchStatement: () => {
+          cyclomaticComplexity++;
+          conditionCount++;
+        },
+        onForStatement: () => {
+          cyclomaticComplexity++;
+          loopCount++;
+        },
+        onForInStatement: () => {
+          cyclomaticComplexity++;
+          loopCount++;
+        },
+        onForOfStatement: () => {
+          cyclomaticComplexity++;
+          loopCount++;
+        },
+        onWhileStatement: () => {
+          cyclomaticComplexity++;
+          loopCount++;
+        },
+        onDoWhileStatement: () => {
+          cyclomaticComplexity++;
+          loopCount++;
+        },
+        onCatchClause: () => {
+          cyclomaticComplexity++;
+        },
+        onVariableDeclarator: () => {
+          localVariableCount++;
+        },
+        onStatement: () => {
+          statementCount++;
+        },
+        onExpression: () => {
+          expressionCount++;
+        },
+      });
+    }
 
     return {
       cyclomaticComplexity,
@@ -531,6 +546,8 @@ export class FunctionAnalyzer {
       callbacks.onDoWhileStatement?.();
     } else if (t.isCatchClause(node)) {
       callbacks.onCatchClause?.();
+    } else if (t.isVariableDeclaration(node)) {
+      callbacks.onVariableDeclarator?.();
     } else if (t.isVariableDeclarator(node)) {
       callbacks.onVariableDeclarator?.();
     } else if (t.isStatement(node)) {
@@ -555,6 +572,48 @@ export class FunctionAnalyzer {
       for (const caseStmt of node.cases) {
         this.analyzePerformanceNodes(caseStmt, callbacks);
       }
+    } else if (t.isExpressionStatement(node)) {
+      // 处理表达式语句
+      this.analyzePerformanceNodes(node.expression, callbacks);
+    } else if (t.isReturnStatement(node)) {
+      // 处理返回语句
+      if (node.argument) {
+        this.analyzePerformanceNodes(node.argument, callbacks);
+      }
+    } else if (t.isForStatement(node)) {
+      // 处理for循环的各个部分
+      if (node.init) {
+        this.analyzePerformanceNodes(node.init, callbacks);
+      }
+      if (node.test) {
+        this.analyzePerformanceNodes(node.test, callbacks);
+      }
+      if (node.update) {
+        this.analyzePerformanceNodes(node.update, callbacks);
+      }
+      this.analyzePerformanceNodes(node.body, callbacks);
+    } else if (t.isVariableDeclarator(node)) {
+      // 处理变量声明符的初始化值
+      if (node.init) {
+        this.analyzePerformanceNodes(node.init, callbacks);
+      }
+    } else if (t.isBinaryExpression(node) || t.isLogicalExpression(node)) {
+      // 处理二元表达式
+      this.analyzePerformanceNodes(node.left, callbacks);
+      this.analyzePerformanceNodes(node.right, callbacks);
+    } else if (t.isUnaryExpression(node) || t.isUpdateExpression(node)) {
+      // 处理一元表达式
+      this.analyzePerformanceNodes(node.argument, callbacks);
+    } else if (t.isObjectExpression(node)) {
+      // 处理对象表达式
+      for (const prop of node.properties) {
+        this.analyzePerformanceNodes(prop, callbacks);
+      }
+    } else if (t.isProperty(node)) {
+      // 处理对象属性
+      if (node.value) {
+        this.analyzePerformanceNodes(node.value, callbacks);
+      }
     }
   }
 
@@ -562,7 +621,7 @@ export class FunctionAnalyzer {
    * 查找调用者函数
    */
   private findCallerFunction(path: any): string | null {
-    let currentPath = path.parent;
+    let currentPath = path;
     while (currentPath) {
       if (t.isFunctionDeclaration(currentPath.node) && currentPath.node.id) {
         return currentPath.node.id.name;
@@ -570,11 +629,14 @@ export class FunctionAnalyzer {
         t.isFunctionExpression(currentPath.node) ||
         t.isArrowFunctionExpression(currentPath.node)
       ) {
-        if (t.isVariableDeclarator(currentPath.parent) && t.isIdentifier(currentPath.parent.id)) {
-          return currentPath.parent.id.name;
+        if (
+          t.isVariableDeclarator(currentPath.parentPath?.node) &&
+          t.isIdentifier(currentPath.parentPath?.node.id)
+        ) {
+          return currentPath.parentPath.node.id.name;
         }
       }
-      currentPath = currentPath.parent;
+      currentPath = currentPath.parentPath;
     }
     return null;
   }

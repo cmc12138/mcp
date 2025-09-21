@@ -3,8 +3,50 @@
  * 负责分析React/Vue等前端框架的组件
  */
 
-import traverse from '@babel/traverse';
 import * as t from '@babel/types';
+
+// 自定义AST遍历器，替代babel traverse
+function traverseAST(ast: any, visitors: any) {
+  function traverseNode(node: any, path: any = { node, parent: null, parentPath: null }) {
+    if (!node || typeof node !== 'object') return;
+
+    // 调用对应的访问器
+    const visitor = visitors[node.type];
+    if (visitor && typeof visitor === 'function') {
+      visitor(path);
+    }
+
+    // 递归遍历子节点
+    for (const key in node) {
+      if (key === 'type' || key === 'loc' || key === 'range') continue;
+
+      const child = node[key];
+      if (Array.isArray(child)) {
+        child.forEach((item, index) => {
+          if (item && typeof item === 'object') {
+            traverseNode(item, {
+              node: item,
+              parent: node,
+              parentPath: path,
+              key,
+              index,
+            });
+          }
+        });
+      } else if (child && typeof child === 'object') {
+        traverseNode(child, {
+          node: child,
+          parent: node,
+          parentPath: path,
+          key,
+        });
+      }
+    }
+  }
+
+  traverseNode(ast);
+}
+
 import type {
   ComponentInfo,
   ComponentProps,
@@ -25,32 +67,49 @@ export class ComponentAnalyzer {
   analyzeComponents(ast: any, filePath: string): ComponentInfo[] {
     const components: ComponentInfo[] = [];
 
-    traverse(ast, {
-      FunctionDeclaration: path => {
+    traverseAST(ast, {
+      FunctionDeclaration: (path: any) => {
         if (this.isReactComponent(path)) {
+          const componentInfo = this.createComponentInfo(path, filePath, 'functional', ast);
+          components.push(componentInfo);
+        } else if (this.isCustomHookComponent(path)) {
+          const componentInfo = this.createComponentInfo(path, filePath, 'functional', ast);
+          components.push(componentInfo);
+        } else if (this.isHigherOrderComponent(path.node)) {
           const componentInfo = this.createComponentInfo(path, filePath, 'functional', ast);
           components.push(componentInfo);
         }
       },
 
-      ArrowFunctionExpression: path => {
-        if (this.isReactComponent(path)) {
+      ArrowFunctionExpression: (path: any) => {
+        // 只有在不是VariableDeclarator且不是JSX表达式的情况下才检测
+        if (
+          !t.isVariableDeclarator(path.parent) &&
+          !t.isJSXExpressionContainer(path.parent) &&
+          !t.isCallExpression(path.parent) &&
+          this.isReactComponent(path)
+        ) {
           const componentInfo = this.createComponentInfo(path, filePath, 'functional', ast);
           components.push(componentInfo);
         }
       },
 
-      ClassDeclaration: path => {
+      ClassDeclaration: (path: any) => {
         if (this.isReactClassComponent(path)) {
           const componentInfo = this.createComponentInfo(path, filePath, 'class', ast);
           components.push(componentInfo);
         }
       },
 
-      VariableDeclarator: path => {
-        if (t.isArrowFunctionExpression(path.node.init) && this.isReactComponent(path)) {
-          const componentInfo = this.createComponentInfo(path, filePath, 'functional', ast);
-          components.push(componentInfo);
+      VariableDeclarator: (path: any) => {
+        if (t.isArrowFunctionExpression(path.node.init)) {
+          if (this.isReactComponent(path)) {
+            const componentInfo = this.createComponentInfo(path, filePath, 'functional', ast);
+            components.push(componentInfo);
+          } else if (this.isCustomHookComponent(path)) {
+            const componentInfo = this.createComponentInfo(path, filePath, 'functional', ast);
+            components.push(componentInfo);
+          }
         }
       },
     });
@@ -89,7 +148,7 @@ export class ComponentAnalyzer {
       props: this.analyzeProps(node),
       state: this.analyzeState(node),
       lifecycle: this.analyzeLifecycle(node),
-      hooks: this.analyzeHooks(node),
+      hooks: this.analyzeHooks(node.body),
       eventHandlers: this.analyzeEventHandlers(node),
       children: [],
       parents: [],
@@ -107,6 +166,24 @@ export class ComponentAnalyzer {
   private isReactComponent(path: any): boolean {
     const node = path.node;
 
+    // 对于箭头函数，需要更严格的检查
+    if (t.isArrowFunctionExpression(node)) {
+      // 如果是在JSX表达式中，不是组件
+      if (t.isJSXExpressionContainer(path.parent)) {
+        return false;
+      }
+      // 如果是在变量声明中，检查变量名
+      if (t.isVariableDeclarator(path.parent)) {
+        const varName = path.parent.id?.name;
+        if (varName && varName.length > 0 && varName[0] === varName[0]?.toUpperCase()) {
+          return true;
+        }
+        return false;
+      }
+      // 其他情况，检查是否返回JSX
+      return this.returnsJSX(node);
+    }
+
     // 检查函数名是否以大写字母开头
     const name = this.getComponentName(node, path);
     if (name && name.length > 0 && name[0] === name[0]?.toUpperCase()) {
@@ -118,12 +195,27 @@ export class ComponentAnalyzer {
   }
 
   /**
+   * 检查是否为自定义Hook
+   */
+  private isCustomHookComponent(path: any): boolean {
+    const node = path.node;
+    const name = this.getComponentName(node, path);
+
+    // 检查是否为自定义Hook（以use开头且不是组件）
+    if (this.isCustomHook(name)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
    * 检查是否为React类组件
    */
   private isReactClassComponent(path: any): boolean {
     const node = path.node;
 
-    // 检查是否继承自React.Component
+    // 检查是否继承自React.Component或Component
     if (t.isClassDeclaration(node) && node.superClass) {
       if (t.isMemberExpression(node.superClass)) {
         return (
@@ -132,6 +224,8 @@ export class ComponentAnalyzer {
           t.isIdentifier(node.superClass.property) &&
           node.superClass.property.name === 'Component'
         );
+      } else if (t.isIdentifier(node.superClass)) {
+        return node.superClass.name === 'Component';
       }
     }
 
@@ -178,6 +272,23 @@ export class ComponentAnalyzer {
     } else if (t.isConditionalExpression(node)) {
       this.findJSXNodes(node.consequent, callback);
       this.findJSXNodes(node.alternate, callback);
+    } else if (t.isArrowFunctionExpression(node)) {
+      // 对于箭头函数，检查函数体
+      if (t.isBlockStatement(node.body)) {
+        for (const stmt of node.body.body) {
+          this.findJSXNodes(stmt, callback);
+        }
+      } else {
+        // 对于表达式形式的箭头函数，直接检查表达式
+        this.findJSXNodes(node.body, callback);
+      }
+    } else if (t.isFunctionExpression(node)) {
+      // 对于函数表达式，检查函数体
+      if (t.isBlockStatement(node.body)) {
+        for (const stmt of node.body.body) {
+          this.findJSXNodes(stmt, callback);
+        }
+      }
     }
   }
 
@@ -195,6 +306,8 @@ export class ComponentAnalyzer {
       }
     } else if (t.isClassDeclaration(node) && node.id) {
       return node.id.name;
+    } else if (t.isVariableDeclarator(node) && t.isIdentifier(node.id)) {
+      return node.id.name;
     }
     return 'Anonymous';
   }
@@ -205,8 +318,8 @@ export class ComponentAnalyzer {
   private detectFramework(ast: any): ComponentInfo['framework'] {
     let framework: ComponentInfo['framework'] = 'other';
 
-    traverse(ast, {
-      ImportDeclaration(path) {
+    traverseAST(ast, {
+      ImportDeclaration(path: any) {
         const source = path.node.source.value;
         if (source === 'react' || source.startsWith('react/')) {
           framework = 'react';
@@ -282,6 +395,15 @@ export class ComponentAnalyzer {
     this.findReturnStatements(node, (returnNode: any) => {
       if (t.isJSXElement(returnNode.argument) || t.isJSXFragment(returnNode.argument)) {
         returnsComponent = true;
+      } else if (t.isCallExpression(returnNode.argument)) {
+        // 检查是否返回函数调用（可能是组件）
+        returnsComponent = true;
+      } else if (
+        t.isFunctionExpression(returnNode.argument) ||
+        t.isArrowFunctionExpression(returnNode.argument)
+      ) {
+        // 检查是否返回函数（可能是组件）
+        returnsComponent = true;
       }
     });
 
@@ -305,6 +427,30 @@ export class ComponentAnalyzer {
       }
     } else if (t.isForStatement(node) || t.isWhileStatement(node) || t.isDoWhileStatement(node)) {
       this.findReturnStatements(node.body, callback);
+    } else if (t.isArrowFunctionExpression(node)) {
+      // 对于箭头函数，检查函数体
+      if (t.isBlockStatement(node.body)) {
+        for (const stmt of node.body.body) {
+          this.findReturnStatements(stmt, callback);
+        }
+      } else {
+        // 对于表达式形式的箭头函数，直接检查表达式
+        this.findReturnStatements(node.body, callback);
+      }
+    } else if (t.isFunctionExpression(node)) {
+      // 对于函数表达式，检查函数体
+      if (t.isBlockStatement(node.body)) {
+        for (const stmt of node.body.body) {
+          this.findReturnStatements(stmt, callback);
+        }
+      }
+    } else if (t.isFunctionDeclaration(node)) {
+      // 对于函数声明，检查函数体
+      if (t.isBlockStatement(node.body)) {
+        for (const stmt of node.body.body) {
+          this.findReturnStatements(stmt, callback);
+        }
+      }
     }
   }
 
@@ -319,7 +465,7 @@ export class ComponentAnalyzer {
    * 检查是否导出
    */
   private isExported(path: any): boolean {
-    let currentPath = path.parent;
+    let currentPath = path;
 
     while (currentPath) {
       if (
@@ -328,7 +474,7 @@ export class ComponentAnalyzer {
       ) {
         return true;
       }
-      currentPath = currentPath.parent;
+      currentPath = currentPath.parentPath;
     }
 
     return false;
@@ -338,13 +484,13 @@ export class ComponentAnalyzer {
    * 检查是否为默认导出
    */
   private isDefaultExport(path: any): boolean {
-    let currentPath = path.parent;
+    let currentPath = path;
 
     while (currentPath) {
       if (t.isExportDefaultDeclaration(currentPath.node)) {
         return true;
       }
-      currentPath = currentPath.parent;
+      currentPath = currentPath.parentPath;
     }
 
     return false;
@@ -383,7 +529,7 @@ export class ComponentAnalyzer {
             const propDef: any = {
               name: propName,
               type: propType,
-              required: !(prop as any).optional,
+              required: !(prop as any).optional && !t.isAssignmentPattern(prop.value),
               location: {
                 line: prop.loc?.start.line || 0,
                 column: prop.loc?.start.column || 0,
@@ -425,6 +571,14 @@ export class ComponentAnalyzer {
   private inferPropType(prop: any): string {
     if (t.isAssignmentPattern(prop.value)) {
       return this.inferValueType(prop.value.right);
+    } else if (t.isFunctionExpression(prop.value) || t.isArrowFunctionExpression(prop.value)) {
+      return 'function';
+    } else if (t.isIdentifier(prop.value)) {
+      // 检查是否为函数类型
+      const valueName = prop.value.name;
+      if (valueName.startsWith('on') || valueName.startsWith('handle')) {
+        return 'function';
+      }
     }
     return 'any';
   }
@@ -473,27 +627,38 @@ export class ComponentAnalyzer {
     const updaters: ComponentState['updaters'] = [];
     const subscribers: ComponentState['subscribers'] = [];
 
-    // 使用简单的递归遍历而不是traverse
-    this.findUseStateCalls(node, (callNode: any, path: any) => {
-      const stateName = this.extractStateNameFromCall(callNode);
-      const initialState = callNode.arguments[0];
+    // 使用traverseAST来查找useState调用
+    traverseAST(node, {
+      VariableDeclarator: (path: any) => {
+        const declarator = path.node;
+        if (
+          t.isCallExpression(declarator.init) &&
+          t.isIdentifier(declarator.init.callee) &&
+          declarator.init.callee.name === 'useState' &&
+          t.isArrayPattern(declarator.id) &&
+          declarator.id.elements.length > 0
+        ) {
+          const stateName = declarator.id.elements[0];
+          if (t.isIdentifier(stateName)) {
+            const initialState = declarator.init.arguments[0];
 
-      if (stateName) {
-        definitions.push({
-          name: stateName,
-          type: this.inferValueType(initialState),
-          initialValue: this.extractDefaultValue(initialState),
-          isPrivate: false,
-          isReadonly: false,
-          location: {
-            line: callNode.loc?.start.line || 0,
-            column: callNode.loc?.start.column || 0,
-          },
-        });
+            definitions.push({
+              name: stateName.name,
+              type: this.inferValueType(initialState),
+              initialValue: this.extractDefaultValue(initialState),
+              isPrivate: false,
+              isReadonly: false,
+              location: {
+                line: declarator.loc?.start.line || 0,
+                column: declarator.loc?.start.column || 0,
+              },
+            });
 
-        types[stateName] = this.inferValueType(initialState);
-        initialValues[stateName] = this.extractDefaultValue(initialState);
-      }
+            types[stateName.name] = this.inferValueType(initialState);
+            initialValues[stateName.name] = this.extractDefaultValue(initialState);
+          }
+        }
+      },
     });
 
     return {
@@ -508,32 +673,60 @@ export class ComponentAnalyzer {
   /**
    * 查找useState调用
    */
-  private findUseStateCalls(node: any, callback: (callNode: any, path: any) => void): void {
+  private findUseStateCalls(
+    node: any,
+    callback: (callNode: any, path: any) => void,
+    path: any = null
+  ): void {
     if (
       t.isCallExpression(node) &&
       t.isIdentifier(node.callee) &&
       node.callee.name === 'useState'
     ) {
-      callback(node, null);
+      callback(node, path);
     }
 
     // 递归查找子节点
     if (t.isBlockStatement(node)) {
       for (const stmt of node.body) {
-        this.findUseStateCalls(stmt, callback);
+        this.findUseStateCalls(stmt, callback, path);
       }
     } else if (t.isIfStatement(node)) {
-      this.findUseStateCalls(node.consequent, callback);
+      this.findUseStateCalls(node.consequent, callback, path);
       if (node.alternate) {
-        this.findUseStateCalls(node.alternate, callback);
+        this.findUseStateCalls(node.alternate, callback, path);
       }
     } else if (t.isForStatement(node) || t.isWhileStatement(node) || t.isDoWhileStatement(node)) {
-      this.findUseStateCalls(node.body, callback);
+      this.findUseStateCalls(node.body, callback, path);
     } else if (t.isReturnStatement(node) && node.argument) {
-      this.findUseStateCalls(node.argument, callback);
+      this.findUseStateCalls(node.argument, callback, path);
     } else if (t.isConditionalExpression(node)) {
-      this.findUseStateCalls(node.consequent, callback);
-      this.findUseStateCalls(node.alternate, callback);
+      this.findUseStateCalls(node.consequent, callback, path);
+      this.findUseStateCalls(node.alternate, callback, path);
+    } else if (t.isArrowFunctionExpression(node)) {
+      // 对于箭头函数，检查函数体
+      if (t.isBlockStatement(node.body)) {
+        for (const stmt of node.body.body) {
+          this.findUseStateCalls(stmt, callback, path);
+        }
+      } else {
+        // 对于表达式形式的箭头函数，直接检查表达式
+        this.findUseStateCalls(node.body, callback, path);
+      }
+    } else if (t.isFunctionExpression(node)) {
+      // 对于函数表达式，检查函数体
+      if (t.isBlockStatement(node.body)) {
+        for (const stmt of node.body.body) {
+          this.findUseStateCalls(stmt, callback, path);
+        }
+      }
+    } else if (t.isFunctionDeclaration(node)) {
+      // 对于函数声明，检查函数体
+      if (t.isBlockStatement(node.body)) {
+        for (const stmt of node.body.body) {
+          this.findUseStateCalls(stmt, callback, path);
+        }
+      }
     }
   }
 
@@ -541,8 +734,29 @@ export class ComponentAnalyzer {
    * 从useState调用中提取状态名
    */
   private extractStateNameFromCall(callNode: any): string | undefined {
-    // 这里需要从调用上下文推断状态名
-    // 简化实现，返回undefined
+    // 从父级变量声明中提取状态名
+    if (callNode.parent && t.isVariableDeclarator(callNode.parent)) {
+      const declarator = callNode.parent;
+      if (t.isArrayPattern(declarator.id) && declarator.id.elements.length > 0) {
+        const firstElement = declarator.id.elements[0];
+        if (t.isIdentifier(firstElement)) {
+          return firstElement.name;
+        }
+      }
+    }
+
+    // 如果callNode本身就是变量声明的一部分
+    if (
+      t.isVariableDeclarator(callNode) &&
+      t.isArrayPattern(callNode.id) &&
+      callNode.id.elements.length > 0
+    ) {
+      const firstElement = callNode.id.elements[0];
+      if (t.isIdentifier(firstElement)) {
+        return firstElement.name;
+      }
+    }
+
     return undefined;
   }
 
@@ -643,6 +857,12 @@ export class ComponentAnalyzer {
   private analyzeHooks(node: any): HookUsage[] {
     const hooks: HookUsage[] = [];
 
+    // 检查node是否存在
+    if (!node) {
+      return hooks;
+    }
+
+    // 使用简单的递归遍历来查找Hook调用，只在当前函数内部搜索
     this.findHookCalls(node, (callNode: any) => {
       if (t.isIdentifier(callNode.callee)) {
         const hookName = callNode.callee.name;
@@ -670,6 +890,8 @@ export class ComponentAnalyzer {
    * 查找Hook调用
    */
   private findHookCalls(node: any, callback: (callNode: any) => void): void {
+    if (!node) return;
+
     if (t.isCallExpression(node) && t.isIdentifier(node.callee)) {
       callback(node);
     }
@@ -691,6 +913,45 @@ export class ComponentAnalyzer {
     } else if (t.isConditionalExpression(node)) {
       this.findHookCalls(node.consequent, callback);
       this.findHookCalls(node.alternate, callback);
+    } else if (t.isArrowFunctionExpression(node)) {
+      // 对于箭头函数，检查函数体
+      if (t.isBlockStatement(node.body)) {
+        for (const stmt of node.body.body) {
+          this.findHookCalls(stmt, callback);
+        }
+      } else {
+        // 对于表达式形式的箭头函数，直接检查表达式
+        this.findHookCalls(node.body, callback);
+      }
+    } else if (t.isFunctionExpression(node)) {
+      // 对于函数表达式，检查函数体
+      if (t.isBlockStatement(node.body)) {
+        for (const stmt of node.body.body) {
+          this.findHookCalls(stmt, callback);
+        }
+      }
+    } else if (t.isFunctionDeclaration(node)) {
+      // 对于函数声明，检查函数体
+      if (t.isBlockStatement(node.body)) {
+        for (const stmt of node.body.body) {
+          this.findHookCalls(stmt, callback);
+        }
+      }
+    } else if (t.isVariableDeclaration(node)) {
+      // 处理变量声明，检查初始化值中的Hook调用
+      for (const declarator of node.declarations) {
+        if (declarator.init) {
+          this.findHookCalls(declarator.init, callback);
+        }
+      }
+    } else if (t.isVariableDeclarator(node)) {
+      // 处理变量声明器，检查初始化值中的Hook调用
+      if (node.init) {
+        this.findHookCalls(node.init, callback);
+      }
+    } else if (t.isExpressionStatement(node)) {
+      // 处理表达式语句，如 useEffect(() => {});
+      this.findHookCalls(node.expression, callback);
     }
   }
 
@@ -771,22 +1032,50 @@ export class ComponentAnalyzer {
   private analyzeEventHandlers(node: any): EventHandler[] {
     const handlers: EventHandler[] = [];
 
-    this.findEventHandlers(node, (methodNode: any) => {
-      const methodName = t.isIdentifier(methodNode.key) ? methodNode.key.name : '';
-      if (this.isEventHandler(methodName)) {
-        handlers.push({
-          name: methodName,
-          eventType: this.extractEventType(methodName),
-          handler: this.extractMethodBody(methodNode),
-          isAsync: methodNode.async || false,
-          location: {
-            line: methodNode.loc?.start.line || 0,
-            column: methodNode.loc?.start.column || 0,
-          },
-          preventDefault: false,
-          stopPropagation: false,
-        });
-      }
+    // 使用traverseAST来查找事件处理器
+    traverseAST(node, {
+      FunctionDeclaration: (path: any) => {
+        const funcNode = path.node;
+        const funcName = funcNode.id?.name || '';
+        if (this.isEventHandler(funcName)) {
+          handlers.push({
+            name: funcName,
+            eventType: this.extractEventType(funcName),
+            handler: this.extractMethodBody(funcNode),
+            isAsync: funcNode.async || false,
+            location: {
+              line: funcNode.loc?.start.line || 0,
+              column: funcNode.loc?.start.column || 0,
+            },
+            preventDefault: false,
+            stopPropagation: false,
+          });
+        }
+      },
+      VariableDeclarator: (path: any) => {
+        const declarator = path.node;
+        if (
+          (t.isFunctionExpression(declarator.init) ||
+            t.isArrowFunctionExpression(declarator.init)) &&
+          t.isIdentifier(declarator.id)
+        ) {
+          const funcName = declarator.id.name;
+          if (this.isEventHandler(funcName)) {
+            handlers.push({
+              name: funcName,
+              eventType: this.extractEventType(funcName),
+              handler: this.extractMethodBody(declarator.init),
+              isAsync: declarator.init.async || false,
+              location: {
+                line: declarator.loc?.start.line || 0,
+                column: declarator.loc?.start.column || 0,
+              },
+              preventDefault: false,
+              stopPropagation: false,
+            });
+          }
+        }
+      },
     });
 
     return handlers;
@@ -798,6 +1087,16 @@ export class ComponentAnalyzer {
   private findEventHandlers(node: any, callback: (methodNode: any) => void): void {
     if (t.isObjectMethod(node)) {
       callback(node);
+    } else if (
+      t.isFunctionDeclaration(node) ||
+      t.isFunctionExpression(node) ||
+      t.isArrowFunctionExpression(node)
+    ) {
+      // 检查函数名是否为事件处理器
+      const name = this.getComponentName(node, { node, parent: null });
+      if (this.isEventHandler(name)) {
+        callback(node);
+      }
     }
 
     // 递归查找子节点
@@ -812,6 +1111,23 @@ export class ComponentAnalyzer {
       }
     } else if (t.isForStatement(node) || t.isWhileStatement(node) || t.isDoWhileStatement(node)) {
       this.findEventHandlers(node.body, callback);
+    } else if (t.isArrowFunctionExpression(node)) {
+      // 对于箭头函数，检查函数体
+      if (t.isBlockStatement(node.body)) {
+        for (const stmt of node.body.body) {
+          this.findEventHandlers(stmt, callback);
+        }
+      } else {
+        // 对于表达式形式的箭头函数，直接检查表达式
+        this.findEventHandlers(node.body, callback);
+      }
+    } else if (t.isFunctionExpression(node)) {
+      // 对于函数表达式，检查函数体
+      if (t.isBlockStatement(node.body)) {
+        for (const stmt of node.body.body) {
+          this.findEventHandlers(stmt, callback);
+        }
+      }
     }
   }
 
@@ -855,38 +1171,74 @@ export class ComponentAnalyzer {
     let conditionalRenderCount = 0;
     let loopRenderCount = 0;
 
-    this.analyzeComplexityNodes(node, {
-      onIfStatement: () => {
+    // 使用traverseAST来遍历节点
+    traverseAST(node, {
+      IfStatement: () => {
         cyclomaticComplexity++;
         conditionalRenderCount++;
       },
-      onConditionalExpression: () => {
+      ConditionalExpression: () => {
         cyclomaticComplexity++;
         conditionalRenderCount++;
       },
-      onForStatement: () => {
+      ForStatement: () => {
         cyclomaticComplexity++;
         loopRenderCount++;
       },
-      onForInStatement: () => {
+      ForInStatement: () => {
         cyclomaticComplexity++;
         loopRenderCount++;
       },
-      onForOfStatement: () => {
+      ForOfStatement: () => {
         cyclomaticComplexity++;
         loopRenderCount++;
       },
-      onWhileStatement: () => {
+      WhileStatement: () => {
         cyclomaticComplexity++;
         loopRenderCount++;
       },
-      onMethod: () => methodCount++,
-      onCallExpression: (callNode: any) => {
+      Method: () => methodCount++,
+      CallExpression: (path: any) => {
+        const callNode = path.node;
         if (t.isIdentifier(callNode.callee) && this.isReactHook(callNode.callee.name)) {
           hookCount++;
+        } else if (t.isMemberExpression(callNode.callee)) {
+          // 检查是否为数组方法调用（如map、forEach等）
+          const property = callNode.callee.property;
+          if (
+            t.isIdentifier(property) &&
+            ['map', 'forEach', 'filter', 'reduce'].includes(property.name)
+          ) {
+            loopRenderCount++;
+          }
+        }
+      },
+      VariableDeclarator: (path: any) => {
+        const declarator = path.node;
+        if (
+          t.isCallExpression(declarator.init) &&
+          t.isIdentifier(declarator.init.callee) &&
+          declarator.init.callee.name === 'useState'
+        ) {
+          stateCount++;
+        }
+      },
+      FunctionDeclaration: (path: any) => {
+        const funcNode = path.node;
+        const funcName = funcNode.id?.name || '';
+        if (this.isEventHandler(funcName)) {
+          eventHandlerCount++;
         }
       },
     });
+
+    // 计算Props数量
+    if (node.params && node.params.length > 0) {
+      const propsParam = node.params[0];
+      if (t.isObjectPattern(propsParam)) {
+        propCount = propsParam.properties.length;
+      }
+    }
 
     return {
       cyclomaticComplexity,

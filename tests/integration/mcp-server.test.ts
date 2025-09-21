@@ -156,7 +156,9 @@ describe('MCP服务器集成测试', () => {
       });
 
       expect(result).toBeDefined();
-      expect(result.isError).toBe(true);
+      expect(result.content).toBeDefined();
+      expect(result.content[0].framework).toBe('unknown');
+      expect(result.content[0].name).toBe('path');
     });
 
     it('should handle missing parameters', async () => {

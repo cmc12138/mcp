@@ -1,0 +1,47 @@
+---
+alwaysApply: true
+description: MCP项目整体架构和模块组织规�?---
+
+# MCP项目结构指南
+
+## 项目概述
+
+这是一个基于Model Context Protocol的前端代码分析工具，将前端项目逻辑转换为AI易于理解的流程和对象�?
+## 核心模块结构
+
+### 主要入口�?
+- [src/index.ts](mdc:src/index.ts) - 项目主入口，导出所有公共API
+- [src/server/index.ts](mdc:src/server/index.ts) - MCP服务器入�?- [src/analyzer/index.ts](mdc:src/analyzer/index.ts) - 代码分析器入�?
+### 分析器模�?(src/analyzer/)
+
+- [ComponentAnalyzer.ts](mdc:src/analyzer/ComponentAnalyzer.ts) - React/Vue组件分析
+- [FunctionAnalyzer.ts](mdc:src/analyzer/FunctionAnalyzer.ts) - 函数分析
+- [VariableTracker.ts](mdc:src/analyzer/VariableTracker.ts) - 变量跟踪
+- [FlowDiagramGenerator.ts](mdc:src/analyzer/FlowDiagramGenerator.ts) - 流程图生�?- [FrontendCodeAnalyzer.ts](mdc:src/analyzer/FrontendCodeAnalyzer.ts) - 主分析器协调�?
+### 服务器模�?(src/server/)
+
+- [FrontendAnalysisMCPServer.ts](mdc:src/server/FrontendAnalysisMCPServer.ts) - MCP服务器实�?- [ToolHandler.ts](mdc:src/server/ToolHandler.ts) - 工具处理�?- [ResourceHandler.ts](mdc:src/server/ResourceHandler.ts) - 资源处理�?
+### 类型定义 (src/types/)
+
+- [ComponentInfo.ts](mdc:src/types/ComponentInfo.ts) - 组件信息类型
+- [FunctionInfo.ts](mdc:src/types/FunctionInfo.ts) - 函数信息类型
+- [VariableInfo.ts](mdc:src/types/VariableInfo.ts) - 变量信息类型
+- [errors.ts](mdc:src/types/errors.ts) - 错误类型定义
+
+### 工具模块 (src/utils/)
+
+- [astUtils.ts](mdc:src/utils/astUtils.ts) - AST操作工具
+- [errorHandler.ts](mdc:src/utils/errorHandler.ts) - 错误处理工具
+- [performance.ts](mdc:src/utils/performance.ts) - 性能监控工具
+
+## 文件命名约定
+
+- 使用PascalCase命名类和接口文件
+- 使用camelCase命名函数和变量文�?- 测试文件使用 `.test.ts` 后缀
+- 类型定义文件使用描述性名�?
+## 导入导出规范
+
+- 所有模块都应通过index.ts文件导出
+- 使用命名导出而非默认导出
+- 类型和实现分离，类型定义在types目录
+

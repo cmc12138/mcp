@@ -159,6 +159,22 @@ export class VariableTracker {
       currentPath = currentPath.parent;
     }
 
+    // 检查是否在类构造函数内部 - 使用parentPath来遍历
+    currentPath = path;
+    while (currentPath) {
+      if (currentPath.node) {
+        // 检查是否是类方法且为构造函数
+        if (t.isClassMethod(currentPath.node) && currentPath.node.kind === 'constructor') {
+          return 'class';
+        }
+        // 检查是否在类内部
+        if (t.isClassDeclaration(currentPath.node) || t.isClassExpression(currentPath.node)) {
+          return 'class';
+        }
+      }
+      currentPath = currentPath.parentPath;
+    }
+
     // 检查是否在函数内部
     if (functionParent) {
       return 'function';
@@ -535,20 +551,20 @@ export class VariableTracker {
    * 检查是否为循环变量
    */
   private isLoopVariable(path: any): boolean {
-    let currentPath = path.parent;
+    let currentPath = path;
     while (currentPath) {
       if (
-        t.isForStatement(currentPath) ||
-        t.isForInStatement(currentPath) ||
-        t.isForOfStatement(currentPath) ||
-        t.isWhileStatement(currentPath) ||
-        t.isDoWhileStatement(currentPath)
+        t.isForStatement(currentPath.node) ||
+        t.isForInStatement(currentPath.node) ||
+        t.isForOfStatement(currentPath.node) ||
+        t.isWhileStatement(currentPath.node) ||
+        t.isDoWhileStatement(currentPath.node)
       ) {
         // 对于for循环，检查是否在初始化、条件或更新部分
-        if (t.isForStatement(currentPath)) {
+        if (t.isForStatement(currentPath.node)) {
           // 检查是否在for循环的初始化部分
-          if (currentPath.init && t.isVariableDeclaration(currentPath.init)) {
-            const declarations = currentPath.init.declarations;
+          if (currentPath.node.init && t.isVariableDeclaration(currentPath.node.init)) {
+            const declarations = currentPath.node.init.declarations;
             for (const decl of declarations) {
               if (t.isIdentifier(decl.id) && decl.id.name === path.node.name) {
                 return true;
@@ -556,7 +572,7 @@ export class VariableTracker {
             }
           }
           // 检查是否在for循环的条件或更新部分
-          if (path.node === currentPath.test || path.node === currentPath.update) {
+          if (path.node === currentPath.node.test || path.node === currentPath.node.update) {
             return true;
           }
           // 检查是否在for循环体内
@@ -565,7 +581,7 @@ export class VariableTracker {
         // 对于其他类型的循环，检查是否在循环体内
         return true;
       }
-      currentPath = currentPath.parent;
+      currentPath = currentPath.parentPath;
     }
     return false;
   }
